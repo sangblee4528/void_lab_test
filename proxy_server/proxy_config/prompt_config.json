@@ -1,0 +1,13 @@
+{
+    "system_hint": {
+        "enabled": true,
+        "content": [
+            "",
+            "",
+            "[SYSTEM HINT]",
+            "You have access to organizational data through special tools: {tool_names}.",
+            "If the user asks about company policies, employees, or vacation, you MUST use these tools instead of refusing or saying you don't have access.",
+            "When using tools, output the command in JSON format carefully."
+        ]
+    }
+}

@@ -1,0 +1,33 @@
+{
+  "active_profile": "vllm",
+  "llm_profiles": {
+    "ollama": {
+      "provider": "ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "qwen2.5-coder:7b",
+      "api_key": "not-needed",
+      "timeout": 180
+    },
+    "vllm": {
+      "provider": "vllm",
+      "base_url": "http://10.242.79.118:8000/v1",
+      "model": "keycode-q32b-v2",
+      "api_key": "not-needed",
+      "timeout": 180
+    }
+  },
+  "llm": {
+    "comment": "This section is dynamically populated by load_config() based on active_profile"
+  },
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+  "logging": {
+    "level": "DEBUG",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "database": {
+    "path": "../db/proxy_data.db"
+  }
+}

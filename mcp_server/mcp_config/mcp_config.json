@@ -1,0 +1,29 @@
+{
+    "mcp": {
+        "host": "127.0.0.1",
+        "port": 3000,
+        "protocol": "json-rpc"
+    },
+    "database": {
+        "type": "sqlite",
+        "path": "../db/mcp_data.db"
+    },
+    "tools": {
+        "search_docs": {
+            "enabled": true,
+            "description": "회사 문서 검색"
+        },
+        "get_employee_info": {
+            "enabled": true,
+            "description": "직원 정보 조회"
+        },
+        "calculate_vacation_days": {
+            "enabled": true,
+            "description": "휴가 일수 계산"
+        }
+    },
+    "logging": {
+        "level": "DEBUG",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    }
+}
