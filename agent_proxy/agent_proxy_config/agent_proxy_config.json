@@ -10,7 +10,7 @@
         },
         "vllm": {
             "provider": "vllm",
-            "base_url": "http://10.242.79.118:8000/v1",
+            "base_url": "http://127.0.0.1:8000/v1",
             "model": "keycode-q32b-v2",
             "api_key": "not-needed",
             "timeout": 120
