@@ -34,7 +34,7 @@ CONFIG_PATH = Path(__file__).parent / "proxy_config" / "proxy_config.json"
 def load_config() -> Dict[str, Any]:
     """설정 파일을 로드합니다."""
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             config = json.load(f)
             
         # 프로파일 지원: active_profile이 있으면 해당 설정을 llm 섹션으로 복사

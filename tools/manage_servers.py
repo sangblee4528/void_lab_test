@@ -78,7 +78,7 @@ def start_server(key):
     log_path = os.path.join(cwd, info['log'])
     
     try:
-        with open(log_path, "a") as log_file:
+        with open(log_path, "a", encoding="utf-8") as log_file:
             process = subprocess.Popen(
                 info['cmd'],
                 cwd=cwd,

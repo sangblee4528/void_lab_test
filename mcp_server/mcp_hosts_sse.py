@@ -29,7 +29,7 @@ CONFIG_PATH = Path(__file__).parent / "mcp_config" / "mcp_config.json"
 
 def load_config():
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         logger.warning(f"⚠️ 설정 파일 로드 실패 (기본값 사용): {e}")

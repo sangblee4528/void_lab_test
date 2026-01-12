@@ -31,7 +31,7 @@ from mcp_client import McpSseClient
 CONFIG_PATH = Path(__file__).parent / "agent_proxy_config" / "agent_proxy_config.json"
 
 def load_config():
-    with open(CONFIG_PATH) as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         config = json.load(f)
         
     # 프로파일 지원: active_profile이 있으면 해당 설정을 llm 섹션으로 복사
