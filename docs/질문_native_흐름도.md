@@ -93,3 +93,27 @@ curl http://localhost:8001/v1/chat/completions \
     "stream": false
   }'
 ```
+
+### 3. DB 실행 로그 확인
+`agent_native`는 모든 도구 실행과 요청 내역을 텍스트 파일과 SQLite DB에 동시에 기록합니다.
+
+#### 3.1 텍스트 로그 파일 확인
+터미널에서 실시간으로 로그가 쌓이는 것을 확인할 수 있습니다.
+```bash
+# 실시간 로그 모니터링
+tail -f agent_native/agent_native.log
+```
+
+#### 3.2 SQLite DB 로그 확인
+`agent_logs` 테이블에 기록된 상세 이력을 `sqlite3` 명령어로 직접 조회할 수 있습니다.
+```bash
+# 최근 5개의 로그 이력 확인
+sqlite3 db/agent_native_data.db "SELECT * FROM agent_logs ORDER BY timestamp DESC LIMIT 5;"
+```
+
+**DB 로그 예시:**
+| id | timestamp | request_id | message | details |
+| :--- | :--- | :--- | :--- | :--- |
+| 74 | 2026-01-12 12:00:02 | 205943 | Native Tool Call: get_all_employees | {} |
+| 73 | 2026-01-12 11:59:43 | 205943 | Request Received | 직원 명단 알려줘 |
+
