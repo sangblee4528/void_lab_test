@@ -1,0 +1,32 @@
+{
+    "active_profile": "ollama",
+    "llm_profiles": {
+        "ollama": {
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen2.5-coder:7b",
+            "api_key": "not-needed",
+            "timeout": 120
+        },
+        "vllm": {
+            "provider": "vllm",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "model": "keycode-q32b-v2",
+            "api_key": "not-needed",
+            "timeout": 180
+        }
+    },
+    "llm": {
+        "comment": "This section is dynamically populated by load_config() based on active_profile"
+    },
+    "agent": {
+        "host": "127.0.0.1",
+        "port": 8001
+    },
+    "logging": {
+        "level": "DEBUG"
+    },
+    "database": {
+        "path": "../../db/agent_native_data.db"
+    }
+}

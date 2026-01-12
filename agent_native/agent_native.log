@@ -1,0 +1,290 @@
+2026-01-12 20:59:18,978 - asyncio - DEBUG - Using selector: KqueueSelector
+2026-01-12 20:59:18,991 - agent_native - INFO - 🤖 Agent Native Server 시작 중 (Truly Native Mode)...
+2026-01-12 20:59:18,991 - agent_native - INFO - ✅ 4개의 네이티브 도구 로드 완료
+2026-01-12 20:59:43,185 - agent_native - INFO - 📥 [Agent-205943] 새 요청 수신: 직원 명단 알려줘
+2026-01-12 20:59:43,190 - agent_native - INFO - 🔍 [Agent-205943] 로컬 네이티브 도구 목록 사용 중...
+2026-01-12 20:59:43,190 - agent_native - INFO - 📦 [Agent-205943] 4개의 네이티브 도구 발견
+2026-01-12 20:59:43,190 - agent_native - INFO - 🔄 [Agent-205943] 반복 1단계 실행 중...
+2026-01-12 20:59:43,190 - agent_native - INFO - 📤 [Agent-205943] [LLM REQ] LLM에게 답변 요청 중...
+2026-01-12 20:59:43,212 - agent_native - DEBUG - 📡 [LLM TX] Payload:
+{
+  "model": "qwen2.5-coder:7b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "직원 명단 알려줘"
+    }
+  ],
+  "stream": false,
+  "temperature": 0,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_docs",
+        "description": "회사 문서(규정, 가이드 등)에서 정보를 검색합니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "검색할 키워드"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_all_employees",
+        "description": "회사의 모든 직원 목록을 가져옵니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_employee_info",
+        "description": "특정 직원의 상세 정보(부서, 입사일 등)를 조회합니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "employee_id": {
+              "type": "string",
+              "description": "직원 ID (예: EMP001)"
+            }
+          },
+          "required": [
+            "employee_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "calculate_vacation_days",
+        "description": "직원의 연도별 잔여 휴가 일수를 계산합니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "employee_id": {
+              "type": "string",
+              "description": "직원 ID"
+            },
+            "year": {
+              "type": "integer",
+              "description": "조회 연도 (기본: 현재 연도)"
+            }
+          },
+          "required": [
+            "employee_id"
+          ]
+        }
+      }
+    }
+  ]
+}
+2026-01-12 20:59:43,214 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=11434 local_address=None timeout=120 socket_options=None
+2026-01-12 20:59:43,215 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x108238250>
+2026-01-12 20:59:43,215 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-01-12 20:59:43,215 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-01-12 20:59:43,215 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-01-12 20:59:43,215 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-01-12 20:59:43,215 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-01-12 21:00:02,277 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json'), (b'Date', b'Mon, 12 Jan 2026 12:00:02 GMT'), (b'Content-Length', b'345')])
+2026-01-12 21:00:02,284 - httpx - INFO - HTTP Request: POST http://127.0.0.1:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-12 21:00:02,285 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-01-12 21:00:02,285 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-01-12 21:00:02,286 - httpcore.http11 - DEBUG - response_closed.started
+2026-01-12 21:00:02,286 - httpcore.http11 - DEBUG - response_closed.complete
+2026-01-12 21:00:02,287 - httpcore.connection - DEBUG - close.started
+2026-01-12 21:00:02,287 - httpcore.connection - DEBUG - close.complete
+2026-01-12 21:00:02,287 - agent_native - INFO - 📥 [Agent-205943] [LLM RESP] 응답 수신 완료
+2026-01-12 21:00:02,287 - agent_native - DEBUG - --- [LLM RESP Detail] ---
+{
+  "id": "chatcmpl-506",
+  "object": "chat.completion",
+  "created": 1768219202,
+  "model": "qwen2.5-coder:7b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"name\": \"get_all_employees\", \"arguments\": {}}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 393,
+    "completion_tokens": 15,
+    "total_tokens": 408
+  }
+}
+-------------------------
+2026-01-12 21:00:02,287 - agent_native - INFO - 💡 [Agent-205943] Content에서 마크다운 도구 호출 패턴 발견!
+2026-01-12 21:00:02,287 - agent_native - INFO - 🔧 [Agent-205943] LLM이 1개의 도구 호출 요청
+2026-01-12 21:00:02,287 - agent_native - INFO - 🛠️  [Agent-205943] [NATIVE TOOL CALL] get_all_employees 시작
+2026-01-12 21:00:02,287 - agent_native - INFO -    → 인자(Args): {} [ID: call_0_0002]
+2026-01-12 21:00:02,292 - native_tools - INFO - [NativeTools] get_all_employees 실행
+2026-01-12 21:00:02,293 - agent_native - INFO - ✅ [Agent-205943] [NATIVE TOOL RESULT] get_all_employees 완료
+2026-01-12 21:00:02,294 - agent_native - DEBUG -    → 결과: {"success": true, "count": 3, "employees": [{"id": "EMP001", "name": "김철수", "department": "개발팀", "position": "주니어 개발자"}, {"id": "EMP002", "name": "이영희", "department": "인사팀", "position": "대리"}, {"id": "EMP003", "name": "박민수", "department": "개발팀", "position": "인턴"}]}
+2026-01-12 21:00:02,294 - agent_native - INFO - 🔄 [Agent-205943] 반복 2단계 실행 중...
+2026-01-12 21:00:02,294 - agent_native - INFO - 📤 [Agent-205943] [LLM REQ] LLM에게 답변 요청 중...
+2026-01-12 21:00:02,309 - agent_native - DEBUG - 📡 [LLM TX] Payload:
+{
+  "model": "qwen2.5-coder:7b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "직원 명단 알려줘"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_0_0002",
+          "type": "function",
+          "function": {
+            "name": "get_all_employees",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_0_0002",
+      "content": "{\"success\": true, \"count\": 3, \"employees\": [{\"id\": \"EMP001\", \"name\": \"김철수\", \"department\": \"개발팀\", \"position\": \"주니어 개발자\"}, {\"id\": \"EMP002\", \"name\": \"이영희\", \"department\": \"인사팀\", \"position\": \"대리\"}, {\"id\": \"EMP003\", \"name\": \"박민수\", \"department\": \"개발팀\", \"position\": \"인턴\"}]}"
+    }
+  ],
+  "stream": false,
+  "temperature": 0,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_docs",
+        "description": "회사 문서(규정, 가이드 등)에서 정보를 검색합니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "검색할 키워드"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_all_employees",
+        "description": "회사의 모든 직원 목록을 가져옵니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_employee_info",
+        "description": "특정 직원의 상세 정보(부서, 입사일 등)를 조회합니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "employee_id": {
+              "type": "string",
+              "description": "직원 ID (예: EMP001)"
+            }
+          },
+          "required": [
+            "employee_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "calculate_vacation_days",
+        "description": "직원의 연도별 잔여 휴가 일수를 계산합니다.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "employee_id": {
+              "type": "string",
+              "description": "직원 ID"
+            },
+            "year": {
+              "type": "integer",
+              "description": "조회 연도 (기본: 현재 연도)"
+            }
+          },
+          "required": [
+            "employee_id"
+          ]
+        }
+      }
+    }
+  ]
+}
+2026-01-12 21:00:02,310 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=11434 local_address=None timeout=120 socket_options=None
+2026-01-12 21:00:02,313 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x1080ade10>
+2026-01-12 21:00:02,313 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-01-12 21:00:02,313 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-01-12 21:00:02,313 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-01-12 21:00:02,313 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-01-12 21:00:02,313 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-01-12 21:00:15,543 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json'), (b'Date', b'Mon, 12 Jan 2026 12:00:15 GMT'), (b'Content-Length', b'723')])
+2026-01-12 21:00:15,544 - httpx - INFO - HTTP Request: POST http://127.0.0.1:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-12 21:00:15,544 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-01-12 21:00:15,544 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-01-12 21:00:15,545 - httpcore.http11 - DEBUG - response_closed.started
+2026-01-12 21:00:15,545 - httpcore.http11 - DEBUG - response_closed.complete
+2026-01-12 21:00:15,546 - httpcore.connection - DEBUG - close.started
+2026-01-12 21:00:15,546 - httpcore.connection - DEBUG - close.complete
+2026-01-12 21:00:15,546 - agent_native - INFO - 📥 [Agent-205943] [LLM RESP] 응답 수신 완료
+2026-01-12 21:00:15,546 - agent_native - DEBUG - --- [LLM RESP Detail] ---
+{
+  "id": "chatcmpl-35",
+  "object": "chat.completion",
+  "created": 1768219215,
+  "model": "qwen2.5-coder:7b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "<tool_response>\n{\"success\": true, \"count\": 3, \"employees\": [{\"id\": \"EMP001\", \"name\": \"김철수\", \"department\": \"개발팀\", \"position\": \"주니어 개발자\"}, {\"id\": \"EMP002\", \"name\": \"이영희\", \"department\": \"인사팀\", \"position\": \"대리\"}, {\"id\": \"EMP003\", \"name\": \"박민수\", \"department\": \"개발팀\", \"position\": \"인턴\"}]}\n</tool_response>"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 541,
+    "completion_tokens": 122,
+    "total_tokens": 663
+  }
+}
+-------------------------
+2026-01-12 21:00:15,547 - agent_native - INFO - ✅ [Agent-205943] 최종 응답 도달
+2026-01-12 21:01:51,487 - agent_native - INFO - 👋 Agent Native Server 종료

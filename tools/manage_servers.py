@@ -26,6 +26,13 @@ SERVERS = {
         "cwd": "proxy_server",
         "cmd": ["python", "proxy_server.py"],
         "log": "proxy_server.log"
+    },
+    "native": {
+        "name": "Native Agent Server",
+        "port": 8001,
+        "cwd": "agent_native",
+        "cmd": ["python", "agent_native_server.py"],
+        "log": "agent_native.log"
     }
 }
 
@@ -131,7 +138,7 @@ def main():
     print("🔄 서버 재시작 관리")
     print("=" * 60)
     
-    restart = input("👉 MCP 서버와 Proxy 서버를 순서대로 실행하시겠습니까? (y/N): ").lower()
+    restart = input("👉 MCP, Proxy, Native 서버를 순서대로 실행하시겠습니까? (y/N): ").lower()
     
     if restart == 'y':
         # 1. MCP 서버 시작
@@ -149,6 +156,13 @@ def main():
             print(f"⚠️ Proxy 서버(Port 8000)가 이미 실행 중입니다.")
         else:
             start_server("proxy")
+            
+        # 3. Native 서버 시작
+        native_running = get_process_on_port(8001)
+        if native_running:
+            print(f"⚠️ Native 서버(Port 8001)가 이미 실행 중입니다.")
+        else:
+            start_server("native")
             
         print("\n✅ 모든 서버 실행 작업이 완료되었습니다.")
         print("   (로그는 각 서버 디렉토리의 .log 파일을 확인하세요)")
