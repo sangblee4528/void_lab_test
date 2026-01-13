@@ -1,6 +1,6 @@
 # 질문_native_loop_흐름도 (Flowchart)
 
-이 문서는 사용자의 질문이 입력된 후, 에이전트가 도구를 호출하고 오류 발생 시 피드백 루프를 통해 자율적으로 문제를 해결하는 전체 과정을 상세히 설명합니다.
+이 문서는 사용자의 질문이 입력된 후, 에이전트가 도구를 호출하고 오류 발생 시 피드백 루프를 통해 자율적으로 문제를 해결하는 전체 과정을 기술적으로 상세히 설명합니다.
 
 ---
 
@@ -51,50 +51,144 @@ sequenceDiagram
 ## 2. 상세 단계별 흐름
 
 ### 1️⃣ Void IDE → Agent Loop Server
-- **파일**: `agent_native_loop/agent_native_loop_server.py`
-- **엔드포인트**: `POST /v1/chat/completions` (Port: 8002)
-- 사용자의 요청을 수신하고 `chat_completions` 함수에서 자율 실행 루프를 시작합니다.
 
-### 2️⃣ LLM Native Tool Calling (추론 단계)
-- 서버는 `native_loop_tools.py`에 정의된 도구 목록(`NATIVE_TOOL_DEFS`)을 LLM에게 보냅니다.
-- LLM은 현재 질문을 해결하기 위해 어떤 도구가 필요한지 판단합니다.
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (123행)
 
-### 3️⃣ Truly Native Loop (직접 실행)
-- **로컬 호출**: LLM이 요청한 도구를 외부 서버 경유 없이 서버 내부의 파이썬 함수로 즉시 매핑하여 실행합니다.
-- **성능**: 네트워크 오버헤드가 없으며, `agent_native_loop_data.db`에 활동 내역을 즉시 기록합니다.
+```python
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatRequest):
+    # 요청 수신 및 로그 저장
+    request_id = datetime.now().strftime("%H%M%S")
+    logger.info(f"📥 [Agent-{request_id}] 새 요청 수신: {request.messages[-1].content}")
+    save_agent_log(request_id, "Request Received", request.messages[-1].content)
+    
+    current_messages = [msg.model_dump(exclude_none=True) for msg in request.messages]
+```
 
-### 4️⃣ 피드백 루프 및 자가 수정 (핵심 엔진)
-- **오류 감지**: 도구 실행 결과가 `success: False`인 경우 피드백 루프가 트리거됩니다.
-- **피드백 주입**: 서버는 LLM에게 단순 실패가 아닌, **"도구 실행 중 오류가 발생했습니다: [내용]. 원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."**라는 가이드를 전달합니다.
-- **자가 수정(Self-Correction)**: LLM은 이 피드백을 바탕으로 자신의 실수를 인지하고, 도구 인자를 수정하거나(예: `ls` -> `create_file`) 새로운 전략을 세워 재시도합니다.
-
-### 5️⃣ 최종 응답 반환
-- 모든 도구 실행 결과가 수집되고 LLM이 최종 답변을 확정하면, 서버는 이를 SSE(Server-Sent Events) 스트림 형식으로 변환하여 Void IDE로 전송합니다.
-
----
-
-## 3. 피드백 루프 실제 사례: `ls a.txt` 케이스
-
-사용자님께서 질문하신 "파일이 없으면 만들어서 해결하는 과정"이 바로 피드백 루프의 정수입니다.
-
-> **상황**: LLM이 `list_files(path="a.txt")`를 호출했으나 파일이 존재하지 않는 경우
-
-1.  **1단계 (LLM 요청)**: "a.txt 파일이 있는지 확인해줘." (`list_files` 호출)
-2.  **2단계 (서버 에러)**: 서버가 실행했으나 파일이 없음 → `{"success": false, "error": "file not found"}` 반환.
-3.  **3단계 (피드백 루프)**: 서버는 LLM에게 **"에러가 났어. 어떻게 할래? 파일을 만들어야 할까, 아니면 다른 파일이 있는지 찾아볼까?"**라고 다시 주입합니다.
-4.  **4단계 (자가 수정)**: LLM은 피드백을 보고 판단합니다. "아, 파일이 없구나. 그럼 나한테 `create_file` 도구가 있으니까 이걸로 만들고 다시 확인해야겠다!"
-5.  **5단계 (성공)**: LLM이 `create_file("a.txt")`를 호출하여 문제를 해결합니다.
-
-> [!IMPORTANT]
-> 여기서 **`create_file`은 '도구'**이고, 에러를 보고 "아, 그럼 파일을 만들어야겠네!"라고 **생각을 바꿔서 다시 시도하는 과정이 '피드백 루프'**입니다.
+**요청 데이터**:
+```json
+{
+  "messages": [
+    {"role": "user", "content": "a.txt 확인해줘"}
+  ],
+  "stream": true
+}
+```
 
 ---
 
-## 4. 핵심 구성 파일 비교
+### 2️⃣ 도구 목록 로드 및 LLM 호출 준비
 
-| 파일명 | 역할 | 비고 |
-| :--- | :--- | :--- |
-| **agent_native_loop_server.py** | 자율 루프 및 피드백 엔진 | 포트 8002 |
-| **native_loop_tools.py** | 직접 실행 도구 정의 | `create_file`, `list_files` 포함 |
-| **agent_native_loop_config.json** | 시스템 설정 | LLM 및 포트 설정 |
-| **agent_native_loop_data.db** | 활동 및 피드백 로그 | 자가 수정 과정 추적 |
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (135-140행)
+
+```python
+# 도구 목록 로드 (로컬 native_tools 사용)
+tools = request.tools
+if not tools:
+    logger.info(f"🔍 [Agent-{request_id}] 로컬 네이티브 도구 목록 사용 중...")
+    tools = NATIVE_TOOL_DEFS # native_loop_tools.py에서 정의된 도구
+```
+
+---
+
+### 3️⃣ 자율 실행 루프 (Autonomous Loop)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (146-153행)
+
+```python
+# n8n 스타일의 상태 머신 루프
+max_iterations = 5
+for i in range(max_iterations):
+    # status 1: Thinking
+    logger.info(f"📤 [Agent-{request_id}] [LLM REQ] LLM에게 답변 요청 중...")
+    full_ollama_resp = await call_llm(current_messages, tools)
+```
+
+---
+
+### 4️⃣ LLM 응답 분석 및 JSON 추출 (Output Parsing)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (165-206행)
+
+Ollama와 같은 모델이 규격화된 `tool_calls` 대신 텍스트 내에 JSON으로 답변할 경우를 대비한 파싱 로직입니다.
+
+```python
+if not tool_calls and content:
+    # 마크다운 코드 블록 제거 및 JSON 추출 시도
+    if "{" in json_str and "}" in json_str:
+        # 중괄호 범위를 찾아 JSON만 추출
+        potential_tool = json.loads(json_str)
+        if "name" in potential_tool and "arguments" in potential_tool:
+            tool_calls = [{"function": potential_tool}]
+```
+
+---
+
+### 5️⃣ 로컬 네이티브 도구 직접 실행 (Action)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (243-254행)
+
+**파일**: `agent_native_loop/native_loop_tools.py` (실제 구현부)
+
+```python
+# Server: 도구 매핑 및 실행
+if func_name in NATIVE_TOOL_REGISTRY:
+    result = NATIVE_TOOL_REGISTRY[func_name](**args)
+
+# Tools: 실제 구현 예시 (list_files)
+def list_files(path: str = ".") -> Dict[str, Any]:
+    p = Path(path)
+    if not p.exists():
+        return {"success": False, "error": f"Path '{path}' does not exist"}
+    files = [f.name for f in p.iterdir() if f.is_file()]
+    return {"success": True, "files": files}
+```
+
+---
+
+### 6️⃣ 피드백 루프 작동 (Feedback Loop)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (260-276행)
+
+도구 실행 실패 시 LLM에게 명시적인 피드백을 주어 자가 수정을 유도합니다.
+
+```python
+if not result.get("success", True):
+    error_msg = result.get("error", "Unknown error")
+    feedback_content = f"도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
+    current_messages.append({
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": json.dumps({"status": "error", "message": feedback_content}, ensure_ascii=False)
+    })
+```
+
+---
+
+### 7️⃣ 최종 응답 및 스트리밍 반환
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `generate_pseudo_stream()` (315행)
+
+```python
+def generate_pseudo_stream(final_resp: Dict):
+    # OpenAI 규격의 SSE 스트림으로 변환하여 반환
+    yield f"data: {json.dumps(chunk1, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps(chunk2, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps(chunk3, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
+```
+
+---
+
+## 3. 핵심 구성 요소 요약
+
+*   **자율성**: 사용자 개입 없이 최대 5회까지 스스로 생각하고 도구를 실행합니다.
+*   **자가 수정**: 실패를 성공의 발판으로 삼아 전략을 수정하는 피드백 루프를 탑재했습니다.
+*   **고성능**: 네트워크 지연 없이 서버 내에서 즉시 도구를 실행합니다.

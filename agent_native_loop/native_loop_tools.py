@@ -108,6 +108,27 @@ def force_error(reason: str) -> Dict[str, Any]:
     logger.info(f"[NativeTools] force_error 실행: reason='{reason}'")
     return {"success": False, "error": f"의도된 에러 발생: {reason}", "should_retry": True}
 
+def list_files(path: str = ".") -> Dict[str, Any]:
+    """지정된 경로의 파일 목록을 나열합니다."""
+    logger.info(f"[NativeTools] list_files 실행: path='{path}'")
+    p = Path(path)
+    if not p.exists():
+        return {"success": False, "error": f"Path '{path}' does not exist"}
+    
+    files = [f.name for f in p.iterdir() if f.is_file()]
+    return {"success": True, "files": files}
+
+def create_file(filename: str, content: str = "") -> Dict[str, Any]:
+    """새 파일을 생성하고 내용을 작성합니다."""
+    logger.info(f"[NativeTools] create_file 실행: filename='{filename}'")
+    try:
+        p = Path(filename)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"success": True, "message": f"File '{filename}' created successfully"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 # OpenAI/Ollama 도구 규격 정의를 위한 메타데이터
 NATIVE_TOOL_DEFS = [
     {
@@ -174,6 +195,34 @@ NATIVE_TOOL_DEFS = [
                 "required": ["reason"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "지정된 경로의 파일 목록을 확인합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "조회할 경로 (기본: .)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "새로운 파일을 생성합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "생성할 파일 이름"},
+                    "content": {"type": "string", "description": "파일 내용 (선택)"}
+                },
+                "required": ["filename"]
+            }
+        }
     }
 ]
 
@@ -184,4 +233,6 @@ NATIVE_TOOL_REGISTRY = {
     "get_employee_info": get_employee_info,
     "calculate_vacation_days": calculate_vacation_days,
     "force_error": force_error,
+    "list_files": list_files,
+    "create_file": create_file,
 }
