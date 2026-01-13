@@ -85,3 +85,27 @@ feedback_guidance = "\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생�
 | **agent_native_loop_server.py** | 피드백 가이드 주입 (`if last_msg.get("role") == "tool":`) | 141-154행 |
 | **agent_native_loop_server.py** | 스트리밍 처리 (`generate_pseudo_stream_hitl`) | 207-248행 |
 | **native_loop_tools.py** | 파일 및 검색 도구 정의 | 19-110행 |
+
+---
+
+## 5. 테스트 방법
+
+### 1️⃣ 서버 실행
+터미널에서 `agent_native_loop` 디렉토리가 아닌 프로젝트 루트 디렉토리에서 다음 명령어를 실행합니다.
+```bash
+python3 agent_native_loop/agent_native_loop_server.py
+```
+
+### 2️⃣ API 테스트 (curl)
+서버가 실행 중인 상태에서 새로운 터미널을 열고 다음 명령어를 실행하여 에이전트의 동작을 확인할 수 있습니다.
+*주의: HITL 방식이므로 curl 대신 Void IDE 채팅창에서 직접 테스트하는 것이 실제 승인/거절 흐름을 확인하기에 더 좋습니다.*
+
+```bash
+curl http://localhost:8002/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen2.5-coder:7b",
+    "messages": [{"role": "user", "content": "a.txt 확인해줘"}],
+    "stream": false
+  }'
+```
