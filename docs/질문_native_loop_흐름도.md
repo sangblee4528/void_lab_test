@@ -1,6 +1,6 @@
 # 질문_native_loop_흐름도 (Human-in-the-Loop)
 
-이 문서는 사용자가 도구 실행의 승인/거절(Accept/Reject)권을 가지며, 오류 발생 시 서버가 지능적으로 피드백을 주입하여 해결을 돕는 **수동 피드백 루프(HITL)** 과정을 설명합니다.
+이 문서는 사용자가 도구 실행의 승인/거절(Accept/Reject)권을 가지며, 오류 발생 시 서버가 지능적으로 피드백을 주입하여 해결을 돕는 **수동 피드백 루프(HITL)** 과정을 상세히 설명합니다.
 
 ---
 
@@ -44,29 +44,82 @@ sequenceDiagram
 
 ---
 
-## 2. 상세 단계별 흐름 (HITL)
+## 2. 상세 단계별 흐름
 
-### 1️⃣ LLM의 도구 선택 (Thinking)
-- 사용자의 질문을 받은 서버는 LLM에게 어떤 도구를 쓸지 묻습니다.
-- 서버 내부에서 자동 실행되던 이전 방식과 달리, 서버는 LLM이 선택한 **도구 호출 정보(`tool_calls`)를 그대로 사용자(Void IDE)에게 전달**합니다.
+### 1️⃣ Void IDE → Agent Loop Server
 
-### 2️⃣ 사용자 승인 및 도구 실행 (Human Gate)
-- Void IDE UI에는 `Accept` / `Reject` 버튼이 표시됩니다.
-- 사용자(User)가 **`Accept`**를 클릭하면 로컬 환경에서 도구가 실행됩니다.
-
-### 3️⃣ 지점: 피드백 주입 (Feedback Injection)
-- **파일**: `agent_native_loop/agent_native_loop_server.py`
-- **함수**: `chat_completions()` (137-154행)
-- 도구 실행 결과가 **에러(`success: False`)**인 경우, 서버는 이를 가로채서 LLM에게 보낼 메시지에 다음과 같은 가이드를 자동으로 덧붙입니다.
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (123-132행)
 
 ```python
-# 서버 내 주입 로직 예시
-feedback_guidance = "\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatRequest):
+    # 요청 수신 및 로그 저장
+    request_id = datetime.now().strftime("%H%M%S")
+    logger.info(f"📥 [Agent-{request_id}] 새 요청 수신: {request.messages[-1].content}")
+    save_agent_log(request_id, "Request Received", request.messages[-1].content)
+    
+    current_messages = [msg.model_dump(exclude_none=True) for msg in request.messages]
 ```
 
-### 4️⃣ LLM의 자가 수정 (Self-Correction)
-- LLM은 사용자로부터 전달된 도구 에러 결과와 서버가 주입한 **[SYSTEM FEEDBACK]**을 함께 읽습니다.
-- "아, 파일이 없구나. 그럼 만들어서 해결해야지"라고 판단하여 `create_file` 도구 호출을 다시 생성합니다.
+---
+
+### 2️⃣ 도구 목록 확인 (Loading Native Tools)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (135행)
+
+```python
+# 도구 목록 로드 (로컬 native_tools 사용)
+tools = request.tools if request.tools else NATIVE_TOOL_DEFS
+```
+
+---
+
+### 3️⃣ 피드백 주입 (Feedback Loop Injection)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (141-151행)
+
+도구 실행 결과가 에러일 경우, LLM이 자가 수정을 할 수 있도록 가이드를 주입합니다.
+
+```python
+if last_msg and last_msg.get("role") == "tool":
+    content_obj = json.loads(last_msg.get("content", "{}"))
+    if isinstance(content_obj, dict) and not content_obj.get("success", True):
+        error_msg = content_obj.get("error", "Unknown error")
+        # 피드백 가이드 메시지 생성
+        feedback_guidance = f"\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
+        last_msg["content"] = last_msg.get("content", "") + feedback_guidance
+```
+
+---
+
+### 4️⃣ LLM 호출 (Thinking)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `chat_completions()` (159행)
+
+```python
+# LLM에게 추론 요청 (Thinking)
+logger.info(f"📤 [Agent-{request_id}] [LLM REQ] LLM에게 답변 요청 중...")
+full_ollama_resp = await call_llm(current_messages, tools)
+```
+
+---
+
+### 5️⃣ 스트리밍 응답 반환 (SSE Stream)
+
+**파일**: `agent_native_loop/agent_native_loop_server.py`  
+**함수**: `generate_pseudo_stream_hitl()` (204-247행)
+
+```python
+if request.stream:
+    return StreamingResponse(
+        generate_pseudo_stream_hitl(full_ollama_resp),
+        media_type="text/event-stream"
+    )
+```
 
 ---
 
@@ -78,13 +131,16 @@ feedback_guidance = "\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생�
 
 ---
 
-## 4. 파일별 주요 라인 정리
+## 4. 파일별 주요 라인 및 소스 매핑
 
-| 파일 | 주요 로직 | 라인 |
-| :--- | :--- | :--- |
-| **agent_native_loop_server.py** | 피드백 가이드 주입 (`if last_msg.get("role") == "tool":`) | 141-154행 |
-| **agent_native_loop_server.py** | 스트리밍 처리 (`generate_pseudo_stream_hitl`) | 207-248행 |
-| **native_loop_tools.py** | 파일 및 검색 도구 정의 | 19-110행 |
+| 단계 | 파일명 | 함수/위치 | 라인 번호 |
+| :--- | :--- | :--- | :--- |
+| **요청 수신** | `agent_native_loop_server.py` | `chat_completions` | 123행 |
+| **도구 로드** | `agent_native_loop_server.py` | `NATIVE_TOOL_DEFS` 사용 | 135행 |
+| **피드백 주입** | `agent_native_loop_server.py` | Feedback Loop Injection | 141-151행 |
+| **LLM 추론** | `agent_native_loop_server.py` | `call_llm` 호출 | 159행 |
+| **스트리밍** | `agent_native_loop_server.py` | `generate_pseudo_stream_hitl` | 204-247행 |
+| **도구 구현** | `native_loop_tools.py` | `list_files`, `create_file` 등 | 19행~ |
 
 ---
 
