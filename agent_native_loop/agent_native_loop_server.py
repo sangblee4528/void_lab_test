@@ -131,153 +131,43 @@ async def chat_completions(request: ChatRequest):
     try:
         current_messages = [msg.model_dump(exclude_none=True) for msg in request.messages]
         
-        # 도구 목록 로드 (로컬 native_tools 사용)
-        tools = request.tools
-        if not tools:
-            logger.info(f"🔍 [Agent-{request_id}] 로컬 네이티브 도구 목록 사용 중...")
-            tools = NATIVE_TOOL_DEFS
-            logger.info(f"📦 [Agent-{request_id}] {len(tools)}개의 네이티브 도구 발견")
+        # 도구 목록 로드
+        tools = request.tools if request.tools else NATIVE_TOOL_DEFS
         
-        # --------------------------------------------------------
-        # 🔄 Autonomous Agent Loop (n8n 스타일의 상태 머신)
-        # --------------------------------------------------------
-        # 이 루프는 n8n AI Agent 노드의 'Looping & State Machine' 아키텍처를 구현합니다.
-        # 단순히 결과를 기다리는 것이 아니라, 스스로 다음 행동을 결정하고 실행하는 능동적 구조입니다.
-        max_iterations = 5
-        for i in range(max_iterations):
-            logger.info(f"🔄 [Agent-{request_id}] 반복 {i+1}단계 실행 중...")
-            
-            # [상태 1: Thinking] LLM에게 현재까지의 대화 이력을 전달하여 '생각'을 요청합니다.
-            # n8n의 "AI Agent Node"가 LLM 모델에 질문을 던지는 과정과 동일합니다.
-            logger.info(f"📤 [Agent-{request_id}] [LLM REQ] LLM에게 답변 요청 중...")
-            full_ollama_resp = await call_llm(current_messages, tools)
-            
-            logger.info(f"📥 [Agent-{request_id}] [LLM RESP] 응답 수신 완료")
-            logger.debug(f"--- [LLM RESP Detail] ---\n{json.dumps(full_ollama_resp, ensure_ascii=False, indent=2)}\n-------------------------")
-
-            choice = full_ollama_resp.get("choices", [{}])[0]
-            message = choice.get("message", {})
-            tool_calls = message.get("tool_calls", [])
-            content = message.get("content", "")
-            
-            # [상태 2: Fallback/Analysis] 모델의 응답이 규격화된 tool_calls인지, 혹은 텍스트 내 JSON인지 분석합니다.
-            # n8n이 LLM 응답을 파싱하여 다음 노드(도구)를 실행할지 결정하는 "Output Parser" 단계입니다.
-            if not tool_calls and content:
-                # 마크다운 코드 블록 제거 및 JSON 추출 시도
-                json_str = content.strip()
-                if "```json" in json_str:
-                    match = re.search(r"```json\s*(\{.*?\})\s*```", json_str, re.DOTALL)
-                    json_str = match.group(1) if match else json_str
-                elif "```" in json_str:
-                    match = re.search(r"```\s*(\{.*?\})\s*```", json_str, re.DOTALL)
-                    json_str = match.group(1) if match else json_str
-                
-                # 중괄호 범위를 찾아 JSON만 추출 (가장 바깥쪽 { })
-                if "{" in json_str and "}" in json_str:
-                    start_idx = json_str.find("{")
-                    # 단순 find/rfind는 중첩된 중괄호에서 위험할 수 있지만, 
-                    # 여기서는 가장 바깥쪽 패턴을 찾기 위해 시도
-                    # 더 정교하게는 괄호 매칭을 해야 함
-                    temp_str = json_str[start_idx:]
-                    depth = 0
-                    end_idx = -1
-                    for idx, char in enumerate(temp_str):
-                        if char == '{': depth += 1
-                        elif char == '}':
-                            depth -= 1
-                            if depth == 0:
-                                end_idx = idx
-                                break
-                    if end_idx != -1:
-                        json_str = temp_str[:end_idx+1]
-
-                try:
-                    potential_tool = json.loads(json_str)
-                    if "name" in potential_tool and "arguments" in potential_tool:
-                        tool_calls = [{
-                            "id": f"call_{i}_{datetime.now().strftime('%M%S')}",
-                            "type": "function",
-                            "function": {
-                                "name": potential_tool["name"],
-                                "arguments": json.dumps(potential_tool["arguments"]) if isinstance(potential_tool["arguments"], dict) else potential_tool["arguments"]
-                            }
-                        }]
-                        message["tool_calls"] = tool_calls
-                        logger.info(f"💡 [Agent-{request_id}] Content에서 JSON 도구 호출 추출 완료!")
-                except Exception as e:
-                    logger.debug(f"🔍 [Agent-{request_id}] JSON 추출 시도 실패: {e}")
-
-            # 도구 호출이 있으면 content를 비워줌 (모델에 따라 중복으로 인식할 수 있음)
-            if tool_calls:
-                message["content"] = ""
-
-            # [상태 3: Exit Condition] 도구 호출이 없으면 에이전트가 "할 일을 다 했다"고 판단하여 최종 답변 상태가 됩니다.
-            # n8n 워크플로우가 최종 'Response' 출력을 내보내는 지점입니다.
-            if not tool_calls:
-                logger.info(f"✅ [Agent-{request_id}] 최종 응답 도달")
-                final_resp = format_to_openai_response(full_ollama_resp)
-                
-                if request.stream:
-                    logger.info(f"📡 [Agent-{request_id}] 스트리밍 형식으로 변환하여 반환")
-                    return StreamingResponse(
-                        generate_pseudo_stream(final_resp),
-                        media_type="text/event-stream"
-                    )
-                else:
-                    return final_resp
-            
-            # [상태 4: Action/Execution] 모델이 요청한 도구들을 실제로 실행합니다.
-            # 이 부분이 Void IDE와 가장 큰 차별점으로, 사용자의 클릭 없이 서버가 '자동 실행'을 수행하는 n8n의 Executor 역할입니다.
-            logger.info(f"🔧 [Agent-{request_id}] LLM이 {len(tool_calls)}개의 도구 호출 요청")
-            current_messages.append(message) # LLM의 도구 요청 메시지 추가 (History Update)
-            
-            for tool_call in tool_calls:
-                func_name = tool_call["function"]["name"]
-                args = json.loads(tool_call["function"]["arguments"])
-                call_id = tool_call.get("id")
-                
-                logger.info(f"🛠️  [Agent-{request_id}] [NATIVE TOOL CALL] {func_name} 시작")
-                logger.info(f"   → 인자(Args): {args} [ID: {call_id}]")
-                save_agent_log(request_id, f"Native Tool Call: {func_name}", json.dumps(args))
-                
-                # 로컬 네이티브 도구 직접 실행 (MCP 서버 호출 없음)
-                if func_name in NATIVE_TOOL_REGISTRY:
-                    try:
-                        # 동기 함수인 경우를 대비해 처리 (현재는 모두 동기)
-                        result = NATIVE_TOOL_REGISTRY[func_name](**args)
-                    except Exception as e:
-                        result = {"success": False, "error": str(e)}
-                else:
-                    result = {"success": False, "error": f"정의되지 않은 도구: {func_name}"}
-                
-                logger.info(f"✅ [Agent-{request_id}] [NATIVE TOOL RESULT] {func_name} 완료")
-                logger.debug(f"   → 결과: {json.dumps(result, ensure_ascii=False)}")
-                
-                # [상태 5: Feedback/State Update] 도구 실행 결과(Observation)를 대화 이력에 추가합니다.
-                # role: "tool"을 통해 모델에게 "이것은 네가 시킨 행동의 결과야"라고 알려줍니다.
-                # 이를 통해 다음 루프(상태 1)에서 모델은 이 결과를 바탕으로 다음 행동을 결정하게 됩니다.
-                
-                # Feedback Loop: 결과가 실패인 경우, 모델에게 명시적으로 수정을 요청하는 프롬프트 추가 가능
-                if not result.get("success", True):
-                    error_msg = result.get("error", "Unknown error")
-                    logger.warning(f"⚠️  [Agent-{request_id}] 도구 실행 실패 감지: {func_name}")
+        # [HITL Feedback Loop Injection]
+        # 마지막 메시지가 도구 실행 결과(role: tool)이고 실패(success: False)인 경우 
+        # LLM에게 자가 수정을 유도하는 가이드를 주입합니다.
+        last_msg = current_messages[-1] if current_messages else None
+        if last_msg and last_msg.get("role") == "tool":
+            try:
+                content_obj = json.loads(last_msg.get("content", "{}"))
+                if isinstance(content_obj, dict) and not content_obj.get("success", True):
+                    error_msg = content_obj.get("error", "Unknown error")
+                    logger.warning(f"⚠️ [Agent-{request_id}] 도구 실행 실패 감지 (HITL 피드백 주입 중)")
                     
-                    feedback_content = f"도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
-                    current_messages.append({
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": json.dumps({"status": "error", "message": feedback_content, "raw_result": result}, ensure_ascii=False)
-                    })
-                else:
-                    current_messages.append({
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": json.dumps(result, ensure_ascii=False)
-                    })
-                
-            # [Loop Back] 루프의 처음(상태 1)으로 돌아가 정보를 주입받은 LLM의 다음 판단을 기다립니다.
+                    # 피드백 가이드 메시지 생성 (Ollama/vLLM이 이전 도구 결과의 연장선으로 이해하도록 구성)
+                    feedback_guidance = f"\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
+                    last_msg["content"] = last_msg.get("content", "") + feedback_guidance
+                    save_agent_log(request_id, "Feedback Injected", error_msg)
+            except Exception as e:
+                logger.debug(f"🔍 [Agent-{request_id}] 피드백 주입 시도 실패: {e}")
+
+        # [Single Turn Request]
+        # 내부 루프를 제거하고 LLM에게 한 번의 추론(Thinking)을 요청합니다.
+        # 도구 호출(Tool Calls)이 발생하면 Void IDE가 이를 캡처하여 사용자에게 승인(Accept)을 요청하게 됩니다.
+        logger.info(f"📤 [Agent-{request_id}] [LLM REQ] LLM에게 답변 요청 중...")
+        full_ollama_resp = await call_llm(current_messages, tools)
         
-        raise HTTPException(status_code=500, detail="최대 반복 횟수 초과")
+        logger.info(f"📥 [Agent-{request_id}] [LLM RESP] 응답 수신 완료")
+        
+        # 결과 반환 (스트리밍 여부에 따라)
+        if request.stream:
+            return StreamingResponse(
+                generate_pseudo_stream_hitl(full_ollama_resp),
+                media_type="text/event-stream"
+            )
+        else:
+            return full_ollama_resp
         
     except Exception as e:
         logger.error(f"❌ [Agent-{request_id}] 처리 중 치명적 에러: {str(e)}", exc_info=True)
@@ -288,7 +178,6 @@ async def call_llm(messages: List[Dict], tools: Optional[List] = None):
     async with httpx.AsyncClient(timeout=config["llm"]["timeout"]) as client:
         # OpenAI 호환 엔드포인트
         url = f"{config['llm']['base_url']}/chat/completions"
-        headers = {}
         headers = {}
         api_key = str(config["llm"].get("api_key", "")).strip()
         # api_key가 존재하고, "not-needed"가 아니며, 빈 문자열이 아닌 경우에만 헤더 추가
@@ -312,55 +201,49 @@ async def call_llm(messages: List[Dict], tools: Optional[List] = None):
         result = resp.json()
         return result
 
-def generate_pseudo_stream(final_resp: Dict):
-    """일반 응답을 SSE 스트림 형식으로 변환"""
-    # 첫 번째 청크: role만 전송
-    chunk1 = {
-        "id": final_resp["id"],
-        "object": "chat.completion.chunk",
-        "created": final_resp["created"],
-        "model": final_resp["model"],
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"role": "assistant"},
-                "finish_reason": None
-            }
-        ]
-    }
-    yield f"data: {json.dumps(chunk1, ensure_ascii=False)}\n\n"
+def generate_pseudo_stream_hitl(full_resp: Dict):
+    """
+    LLM 응답을 OpenAI 호환 SSE 스트림으로 변환하여 전송합니다.
+    HITL 모드에서는 tool_calls가 포함될 수 있으므로 이를 고려합니다.
+    """
+    choice = full_resp.get("choices", [{}])[0]
+    msg = choice.get("message", {})
+    content = msg.get("content", "")
+    tool_calls = msg.get("tool_calls", [])
     
-    # 두 번째 청크: content 전송
-    chunk2 = {
-        "id": final_resp["id"],
-        "object": "chat.completion.chunk",
-        "created": final_resp["created"],
-        "model": final_resp["model"],
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"content": final_resp["choices"][0]["message"]["content"]},
-                "finish_reason": None
-            }
-        ]
+    resp_id = full_resp.get("id", "hitl-" + datetime.now().strftime("%Y%m%d%H%M%S"))
+    model_name = full_resp.get("model", config["llm"]["model"])
+    created_time = full_resp.get("created", int(datetime.now().timestamp()))
+
+    # 1. Start chunk (role)
+    chunk = {
+        "id": resp_id, "object": "chat.completion.chunk", "created": created_time, "model": model_name,
+        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
     }
-    yield f"data: {json.dumps(chunk2, ensure_ascii=False)}\n\n"
-    
-    # 세 번째 청크: finish_reason
-    chunk3 = {
-        "id": final_resp["id"],
-        "object": "chat.completion.chunk",
-        "created": final_resp["created"],
-        "model": final_resp["model"],
-        "choices": [
-            {
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }
-        ]
+    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+
+    # 2. Content chunk (if any)
+    if content:
+        chunk = {
+            "id": resp_id, "object": "chat.completion.chunk", "created": created_time, "model": model_name,
+            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}]
+        }
+        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+
+    # 3. Tool Calls chunk (if any)
+    if tool_calls:
+        chunk = {
+            "id": resp_id, "object": "chat.completion.chunk", "created": created_time, "model": model_name,
+            "choices": [{"index": 0, "delta": {"tool_calls": tool_calls}, "finish_reason": None}]
+        }
+        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+
+    # 4. End chunk
+    chunk = {
+        "id": resp_id, "object": "chat.completion.chunk", "created": created_time, "model": model_name,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": choice.get("finish_reason", "stop")}]
     }
-    yield f"data: {json.dumps(chunk3, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
 
 def format_to_openai_response(ollama_resp: Dict):
