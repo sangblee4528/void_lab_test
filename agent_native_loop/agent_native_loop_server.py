@@ -82,12 +82,12 @@ def save_agent_log(request_id: str, message: str, details: Optional[str] = None)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """서버 시작 시 초기화"""
-    logger.info("🤖 Agent Native Server 시작 중 (Truly Native Mode)...")
+    logger.info("🤖 Agent Native Loop Server 시작 중 (Truly Native Mode)...")
     logger.info(f"✅ {len(NATIVE_TOOL_DEFS)}개의 네이티브 도구 로드 완료")
     yield
-    logger.info("👋 Agent Native Server 종료")
+    logger.info("👋 Agent Native Loop Server 종료")
 
-app = FastAPI(title="Void Lab Test - Active Agent Native", lifespan=lifespan)
+app = FastAPI(title="Void Lab Test - Active Agent Native Loop", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
 
 # 요청 모델
