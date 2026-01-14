@@ -63,6 +63,7 @@ async def call_llm(messages: List[Dict], tools: Optional[List] = None) -> Dict:
             "stream": False,
             "temperature": 0
         }
+        
         if tools:
             payload["tools"] = tools
         
@@ -141,12 +142,17 @@ def detect_tool_calls(assistant_msg: Dict) -> List[Dict]:
                     potential = json.loads(match)
                     if isinstance(potential, dict) and "name" in potential and ("arguments" in potential or "args" in potential):
                         if not any(tc.get("function", {}).get("name") == potential["name"] for tc in detected):
+                            
+                            args_payload = potential.get("arguments") or potential.get("args") or {}
+                            if isinstance(args_payload, dict):
+                                args_payload = json.dumps(args_payload, ensure_ascii=False)
+                            
                             detected.append({
                                 "id": f"call_{datetime.now().strftime('%H%M%S%f')}",
                                 "type": "function",
                                 "function": {
                                     "name": potential["name"],
-                                    "arguments": potential.get("arguments") or potential.get("args") or {}
+                                    "arguments": args_payload
                                 }
                             })
                 except json.JSONDecodeError:
@@ -216,6 +222,11 @@ async def chat_completions(request: ChatRequest):
         return llm_response
     
     # 도구 호출 있음 - pending 상태로 저장
+    # 감지된 도구 호출을 assistant_msg에 반영 (text로 온 경우를 대비)
+    if tool_calls and not assistant_msg.get("tool_calls"):
+        assistant_msg["tool_calls"] = tool_calls
+        assistant_msg["content"] = None
+    
     messages.append(assistant_msg)
     
     tool_call_infos = [
