@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 # 현재 디렉토리 경로 추가
 sys.path.append(str(Path(__file__).parent))
 
-logger = logging.getLogger("mcp_client")
+logger = logging.getLogger("mcp_loop_client")
 
 class McpSseClient:
     """

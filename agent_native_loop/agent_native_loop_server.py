@@ -54,9 +54,9 @@ logging.basicConfig(
         logging.FileHandler(LOG_FILE, encoding="utf-8")
     ]
 )
-logger = logging.getLogger("agent_native")
+logger = logging.getLogger("agent_native_loop")
 # mcp_client 로거도 같은 핸들러를 사용하도록 설정 (상속)
-logging.getLogger("mcp_client").setLevel(getattr(logging, config["logging"]["level"]))
+logging.getLogger("mcp_loop_client").setLevel(getattr(logging, config["logging"]["level"]))
 
 # DB 경로 해결 (상대 경로를 절대 경로로 변환)
 DB_RELATIVE_PATH = config.get("database", {}).get("path", "../db/agent_native_loop_data.db")
