@@ -82,10 +82,10 @@ def save_agent_log(request_id: str, message: str, details: Optional[str] = None)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """서버 시작 시 초기화"""
-    logger.info("🤖 Agent Native Loop Server 시작 중 (Truly Native Mode)...")
-    logger.info(f"✅ {len(NATIVE_TOOL_DEFS)}개의 네이티브 도구 로드 완료")
+    logger.info("Agent Native Loop Server starting (Truly Native Mode)...")
+    logger.info(f"{len(NATIVE_TOOL_DEFS)} native tools loaded")
     yield
-    logger.info("👋 Agent Native Loop Server 종료")
+    logger.info("Agent Native Loop Server stopped")
 
 app = FastAPI(title="Void Lab Test - Active Agent Native Loop", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
@@ -163,49 +163,141 @@ async def chat_completions(request: ChatRequest):
     자율 실행 루프를 포함한 채팅 엔드포인트
     """
     request_id = datetime.now().strftime("%H%M%S")
-    logger.info(f"📥 [Agent-{request_id}] 새 요청 수신: {request.messages[-1].content}")
+    logger.info(f"[Agent-{request_id}] New request received: {request.messages[-1].content}")
     save_agent_log(request_id, "Request Received", request.messages[-1].content)
     
     try:
         current_messages = [msg.model_dump(exclude_none=True) for msg in request.messages]
-        
-        # 도구 목록 로드
         tools = request.tools if request.tools else NATIVE_TOOL_DEFS
         
-        # [HITL Feedback Loop Injection]
-        # 마지막 메시지가 도구 실행 결과(role: tool)이고 실패(success: False)인 경우 
-        # LLM에게 자가 수정을 유도하는 가이드를 주입합니다.
-        last_msg = current_messages[-1] if current_messages else None
-        if last_msg and last_msg.get("role") == "tool":
-            try:
-                content_obj = json.loads(last_msg.get("content", "{}"))
-                if isinstance(content_obj, dict) and not content_obj.get("success", True):
-                    error_msg = content_obj.get("error", "Unknown error")
-                    logger.warning(f"⚠️ [Agent-{request_id}] 도구 실행 실패 감지 (HITL 피드백 주입 중)")
-                    
-                    # 피드백 가이드 메시지 생성 (Ollama/vLLM이 이전 도구 결과의 연장선으로 이해하도록 구성)
-                    feedback_guidance = f"\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
-                    last_msg["content"] = last_msg.get("content", "") + feedback_guidance
-                    save_agent_log(request_id, "Feedback Injected", error_msg)
-            except Exception as e:
-                logger.debug(f"🔍 [Agent-{request_id}] 피드백 주입 시도 실패: {e}")
+        max_iterations = 5
+        iteration = 0
+        final_response = None
+        
+        while iteration < max_iterations:
+            iteration += 1
+            logger.info(f"[Agent-{request_id}] [LLM REQ] Loop {iteration}/{max_iterations}")
+            
+            # [HITL Feedback Loop Injection]
+            last_msg = current_messages[-1] if current_messages else None
+            if last_msg and last_msg.get("role") == "tool":
+                try:
+                    content_obj = json.loads(last_msg.get("content", "{}"))
+                    if isinstance(content_obj, dict) and not content_obj.get("success", True):
+                        error_msg = content_obj.get("error", "Unknown error")
+                        feedback_guidance = f"\n\n[SYSTEM FEEDBACK]\n도구 실행 중 오류가 발생했습니다: {error_msg}\n원인을 분석하고 필요한 경우 수정된 인자로 다시 시도하거나 다른 방법을 찾아주세요."
+                        last_msg["content"] = last_msg.get("content", "") + feedback_guidance
+                except Exception:
+                    pass
 
-        # [Single Turn Request]
-        # 내부 루프를 제거하고 LLM에게 한 번의 추론(Thinking)을 요청합니다.
-        # 도구 호출(Tool Calls)이 발생하면 Void IDE가 이를 캡처하여 사용자에게 승인(Accept)을 요청하게 됩니다.
-        logger.info(f"📤 [Agent-{request_id}] [LLM REQ] LLM에게 답변 요청 중...")
-        full_ollama_resp = await call_llm(current_messages, tools)
-        
-        logger.info(f"📥 [Agent-{request_id}] [LLM RESP] 응답 수신 완료")
-        
+            # LLM 호출
+            full_ollama_resp = await call_llm(current_messages, tools)
+            choice = full_ollama_resp.get("choices", [{}])[0]
+            assistant_msg = choice.get("message", {})
+            current_messages.append(assistant_msg)
+            
+            # [Tool Call Detection]
+            detected_tool_calls = assistant_msg.get("tool_calls", [])
+            logger.debug(f"[Agent-{request_id}] Initial tool_calls: {detected_tool_calls}")
+            if not isinstance(detected_tool_calls, list):
+                detected_tool_calls = []
+                
+            # content에서 추가로 찾기
+            if assistant_msg.get("content"):
+                content = assistant_msg["content"].strip()
+                logger.debug(f"[Agent-{request_id}] Checking content for tools: {content[:100]}...")
+                try:
+                    # 1. ```json ... ``` 블록 찾기
+                    json_matches = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+                    
+                    # 2. 블록이 없으면 텍스트 전체에서 { } 쌍 찾기 (더 견고한 방식)
+                    if not json_matches:
+                        start_idx = content.find("{")
+                        end_idx = content.rfind("}")
+                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                            # 가장 바깥쪽의 { } 블록 하나를 추출
+                            json_matches = [content[start_idx:end_idx+1]]
+                        else:
+                            json_matches = []
+                    
+                    logger.debug(f"[Agent-{request_id}] Found {len(json_matches)} potential JSON blocks")
+                    for match in json_matches:
+                        try:
+                            potential_tool = json.loads(match)
+                            logger.debug(f"[Agent-{request_id}] Parsed JSON: {list(potential_tool.keys())}")
+                            # name과 arguments(또는 args)가 있으면 도구 호출로 간주
+                            if isinstance(potential_tool, dict) and "name" in potential_tool and ("arguments" in potential_tool or "args" in potential_tool):
+                                # 이미 발견된 tool_calls에 동일한 name이 있는지 확인 (중복 방지)
+                                if not any(tc.get("function", {}).get("name") == potential_tool["name"] for tc in detected_tool_calls):
+                                    logger.info(f"[Agent-{request_id}] Tool call '{potential_tool['name']}' detected in content")
+                                    detected_tool_calls.append({
+                                        "id": f"call_{datetime.now().strftime('%H%M%S%f')}",
+                                        "type": "function",
+                                        "function": {
+                                            "name": potential_tool["name"],
+                                            "arguments": potential_tool.get("arguments") or potential_tool.get("args") or {}
+                                        }
+                                    })
+                        except json.JSONDecodeError as je:
+                            logger.debug(f"[Agent-{request_id}] JSONDecodeError for block: {je}")
+                            continue
+                except Exception as e:
+                    logger.debug(f"[Agent-{request_id}] Content parsing error: {e}")
+
+            if not detected_tool_calls:
+                logger.info(f"[Agent-{request_id}] Final response received (Loop finished)")
+                final_response = full_ollama_resp
+                break
+            
+            # tool_calls 업데이트 (루프 진행을 위해)
+            assistant_msg["tool_calls"] = detected_tool_calls
+            tool_calls = detected_tool_calls
+            
+            # 도구 실행
+            logger.info(f"[Agent-{request_id}] Starting {len(tool_calls)} tools")
+            for tc in tool_calls:
+                func_name = tc["function"]["name"]
+                args = tc["function"]["arguments"]
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except:
+                        pass
+                
+                logger.info(f"[Agent-{request_id}] Tool call: {func_name}({args})")
+                
+                if func_name in NATIVE_TOOL_REGISTRY:
+                    try:
+                        if isinstance(args, dict):
+                            result = NATIVE_TOOL_REGISTRY[func_name](**args)
+                        else:
+                            result = NATIVE_TOOL_REGISTRY[func_name]()
+                    except Exception as e:
+                        result = {"success": False, "error": str(e)}
+                else:
+                    result = {"success": False, "error": f"Tool '{func_name}' not found"}
+                
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", "none"),
+                    "name": func_name,
+                    "content": json.dumps(result, ensure_ascii=False)
+                }
+                current_messages.append(tool_msg)
+                save_agent_log(request_id, f"Tool Executed: {func_name}", json.dumps(result, ensure_ascii=False))
+
+        if not final_response:
+            # 최대 횟수 초과 시 마지막 응답 반환
+            final_response = full_ollama_resp
+
         # 결과 반환 (스트리밍 여부에 따라)
         if request.stream:
             return StreamingResponse(
-                generate_pseudo_stream_hitl(full_ollama_resp),
+                generate_pseudo_stream_hitl(final_response),
                 media_type="text/event-stream"
             )
         else:
-            return full_ollama_resp
+            return final_response
         
     except Exception as e:
         logger.error(f"❌ [Agent-{request_id}] 처리 중 치명적 에러: {str(e)}", exc_info=True)
