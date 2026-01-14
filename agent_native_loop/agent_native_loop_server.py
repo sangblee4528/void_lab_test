@@ -6,6 +6,7 @@ LLM이 도구 호출을 요청하면, 클라이언트(Void)에게 반환하기 �
 최종 답변이 나올 때까지 이 과정을 반복합니다.
 """
 
+import asyncio
 import json
 import logging
 import sys
@@ -78,6 +79,29 @@ def save_agent_log(request_id: str, message: str, details: Optional[str] = None)
         conn.close()
     except Exception as e:
         logger.error(f"⚠️ DB 로그 저장 실패: {e}")
+
+async def ask_terminal_approval(func_name: str, args: Dict) -> bool:
+    """
+    터미널에서 도구 실행 승인을 요청합니다.
+    y/Y/yes/Yes 입력 시 True, 그 외는 False 반환
+    """
+    print("\n" + "="*60)
+    print(f"🔧 도구 실행 승인 요청")
+    print(f"   도구: {func_name}")
+    print(f"   인자: {json.dumps(args, ensure_ascii=False, indent=2)}")
+    print("="*60)
+    
+    # async 방식으로 input() 호출 (이벤트 루프 블로킹 방지)
+    loop = asyncio.get_event_loop()
+    user_input = await loop.run_in_executor(None, lambda: input("실행하시겠습니까? (y/n): "))
+    
+    approved = user_input.strip().lower() in ['y', 'yes', '예', 'ㅛ']
+    if approved:
+        print("✅ 승인됨 - 도구를 실행합니다.\n")
+    else:
+        print("❌ 거절됨 - 도구 실행을 건너뜁니다.\n")
+    
+    return approved
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -253,8 +277,10 @@ async def chat_completions(request: ChatRequest):
             assistant_msg["tool_calls"] = detected_tool_calls
             tool_calls = detected_tool_calls
             
-            # 도구 실행
-            logger.info(f"[Agent-{request_id}] Starting {len(tool_calls)} tools")
+            # 도구 실행 (승인 필요)
+            logger.info(f"[Agent-{request_id}] Starting {len(tool_calls)} tools (approval required)")
+            rejected = False
+            
             for tc in tool_calls:
                 func_name = tc["function"]["name"]
                 args = tc["function"]["arguments"]
@@ -266,7 +292,14 @@ async def chat_completions(request: ChatRequest):
                 
                 logger.info(f"[Agent-{request_id}] Tool call: {func_name}({args})")
                 
-                if func_name in NATIVE_TOOL_REGISTRY:
+                # 🔒 터미널 승인 요청
+                approved = await ask_terminal_approval(func_name, args if isinstance(args, dict) else {})
+                
+                if not approved:
+                    rejected = True
+                    result = {"success": False, "error": "사용자가 도구 실행을 거절했습니다."}
+                    save_agent_log(request_id, f"Tool Rejected: {func_name}", "User rejected")
+                elif func_name in NATIVE_TOOL_REGISTRY:
                     try:
                         if isinstance(args, dict):
                             result = NATIVE_TOOL_REGISTRY[func_name](**args)
@@ -285,6 +318,26 @@ async def chat_completions(request: ChatRequest):
                 }
                 current_messages.append(tool_msg)
                 save_agent_log(request_id, f"Tool Executed: {func_name}", json.dumps(result, ensure_ascii=False))
+                
+                # 거절 시 루프 중단
+                if rejected:
+                    logger.info(f"[Agent-{request_id}] User rejected tool execution. Stopping loop.")
+                    break
+            
+            # 거절 시 전체 루프 종료
+            if rejected:
+                final_response = {
+                    "id": "agent-" + datetime.now().strftime("%Y%m%d%H%M%S"),
+                    "object": "chat.completion",
+                    "created": int(datetime.now().timestamp()),
+                    "model": config["llm"]["model"],
+                    "choices": [{
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "사용자가 도구 실행을 거절하여 작업을 중단했습니다."},
+                        "finish_reason": "stop"
+                    }]
+                }
+                break
 
         if not final_response:
             # 최대 횟수 초과 시 마지막 응답 반환
