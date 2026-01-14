@@ -104,6 +104,36 @@ class ChatRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     stream: bool = False
 
+@app.get("/")
+async def root():
+    """서버 상태 및 LLM 연결 확인용 루트 엔드포인트"""
+    llm_connected = False
+    llm_info = {}
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            # Ollama/vLLM 기본 원격 상태 확인 (OpenAI 호환 /v1/models 활용)
+            resp = await client.get(f"{config['llm']['base_url']}/models")
+            llm_connected = resp.status_code == 200
+            llm_info = resp.json() if llm_connected else {"error": resp.text}
+    except Exception as e:
+        llm_info = {"error": str(e)}
+
+    return {
+        "status": "online",
+        "agent": "Agent Native Server",
+        "version": "1.1.0",
+        "llm_connection": {
+            "status": "connected" if llm_connected else "disconnected",
+            "base_url": config['llm']['base_url'],
+            "model": config['llm']['model'],
+            "details": llm_info
+        },
+        "endpoints": {
+            "models": "/v1/models",
+            "chat": "/v1/chat/completions (POST only)"
+        }
+    }
+
 @app.get("/v1/models")
 async def list_models():
     """사용 가능한 모델 목록 반환 (Void IDE 초기화 대응)"""
@@ -117,6 +147,15 @@ async def list_models():
                 "owned_by": config["llm"]["provider"]
             }
         ]
+    }
+
+@app.get("/v1/chat/completions")
+async def chat_completions_get():
+    """GET 요청 시 안내 메시지 반환"""
+    return {
+        "error": "Method Not Allowed",
+        "message": "이 엔드포인트는 POST 요청만 지원합니다. Void IDE나 API 클라이언트 설정에서 POST 메서드를 사용하고 있는지 확인해주세요.",
+        "hint": "OpenAI 호환 API 규격은 채팅 완료를 위해 POST /v1/chat/completions를 사용합니다."
     }
 
 @app.post("/v1/chat/completions")
@@ -261,8 +300,8 @@ async def call_llm(messages: List[Dict], tools: Optional[List] = None):
     async with httpx.AsyncClient(timeout=config["llm"]["timeout"]) as client:
         # OpenAI 호환 엔드포인트
         url = f"{config['llm']['base_url']}/chat/completions"
-        headers = {}
-        headers = {}
+        headers = {"Content-Type": "application/json"}
+        
         api_key = str(config["llm"].get("api_key", "")).strip()
         # api_key가 존재하고, "not-needed"가 아니며, 빈 문자열이 아닌 경우에만 헤더 추가
         if api_key and api_key.lower() != "not-needed":
@@ -278,12 +317,17 @@ async def call_llm(messages: List[Dict], tools: Optional[List] = None):
             payload["tools"] = tools
             
         logger.debug(f"📡 [LLM TX] Payload:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
-        resp = await client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
         
-        # OpenAI 규격 응답에서 message 추출하여 Ollama 형식과 비슷하게 반환
-        result = resp.json()
-        return result
+        try:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.RemoteProtocolError as e:
+            logger.error(f"❌ LLM 서버(Ollama)가 연결을 강제로 끊었습니다. 모델이 로드되어 있는지, 혹은 도구(tools) 형식을 지원하는지 확인해주세요: {e}")
+            raise HTTPException(status_code=500, detail=f"LLM Connection Reset: {str(e)}")
+        except Exception as e:
+            logger.error(f"❌ LLM 호출 중 에러 발생: {e}")
+            raise
 
 def generate_pseudo_stream(final_resp: Dict):
     """일반 응답을 SSE 스트림 형식으로 변환"""
