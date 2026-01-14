@@ -2,3 +2,4 @@
 __MACOSX
 *.pyc
 __pycache__/
+*.log
