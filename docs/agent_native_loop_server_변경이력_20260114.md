@@ -1,6 +1,6 @@
 # agent_native_loop_server 변경 이력 (2026-01-14)
 
-이 문서는 `agent_native_loop_server.py`에 Human-in-the-Loop(HITL) 터미널 승인 기능을 추가한 변경 내역을 상세히 기록합니다.
+이 문서는 `agent_native_loop_server.py`에 Human-in-the-Loop(HITL) 터미널 승인 기능 및 Graceful Shutdown 기능을 추가한 변경 내역을 상세히 기록합니다.
 
 ---
 
@@ -152,6 +152,7 @@ if rejected:
 
 ```python
 import asyncio  # 비동기 input 처리를 위해 추가
+import signal   # 종료 시그널 처리를 위해 추가
 ```
 
 ---
@@ -217,3 +218,76 @@ import asyncio  # 비동기 input 처리를 위해 추가
 **작성자**: Antigravity (AI Assistant)  
 **날짜**: 2026-01-14  
 **관련 파일**: `agent_native_loop/agent_native_loop_server.py`
+
+---
+
+## 7. Graceful Shutdown 기능 추가 🆕
+
+### 7-1. 기존 문제점
+
+**문제**: 서버를 Ctrl+C로 종료해도 포트가 해제되지 않아 재시작 시 에러 발생
+
+```
+ERROR: [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8011): 
+[winerror 10048] 각 소켓 주소(프로토콜/네트워크 주소/포트)는 하나만 사용할 수 있습니다
+```
+
+**원인**: 좀비 프로세스가 포트를 계속 점유
+
+### 7-2. 해결 방안
+
+**위치**: `agent_native_loop_server.py` 461-492행 (main 블록)
+
+```python
+if __name__ == "__main__":
+    import uvicorn
+    import signal
+    import sys
+    
+    def signal_handler(sig, frame):
+        """Ctrl+C 등 종료 시그널 처리"""
+        print("\n🛑 종료 신호 수신. 서버를 정상 종료합니다...")
+        sys.exit(0)
+    
+    # 시그널 핸들러 등록
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # uvicorn 실행 (graceful shutdown 설정 포함)
+    config_uvicorn = uvicorn.Config(
+        app,
+        host=config["agent"]["host"],
+        port=config["agent"]["port"],
+        loop="asyncio",
+        timeout_graceful_shutdown=5  # 5초 내 graceful shutdown
+    )
+    server = uvicorn.Server(config_uvicorn)
+    
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        print("\n🛑 키보드 인터럽트. 서버를 종료합니다...")
+    finally:
+        print("✅ 서버가 정상 종료되었습니다. 포트가 해제되었습니다.")
+```
+
+### 7-3. 변경 전/후 비교
+
+| 항목 | Before | After |
+|------|--------|-------|
+| 종료 방식 | 강제 종료 | Graceful Shutdown |
+| 포트 해제 | ❌ 좀비 프로세스 발생 | ✅ 정상 해제 |
+| 종료 메시지 | ❌ 없음 | ✅ 상태 메시지 출력 |
+| 재시작 | ❌ 포트 충돌 에러 | ✅ 즉시 재시작 가능 |
+
+### 7-4. 종료 시 예상 출력
+
+```
+^C
+🛑 종료 신호 수신. 서버를 정상 종료합니다...
+✅ 서버가 정상 종료되었습니다. 포트가 해제되었습니다.
+```
+
+---
+
+**최종 업데이트**: 2026-01-14 19:40

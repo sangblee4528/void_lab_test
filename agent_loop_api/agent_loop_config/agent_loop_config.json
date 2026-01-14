@@ -1,0 +1,25 @@
+{
+    "agent": {
+        "host": "127.0.0.1",
+        "port": 8012,
+        "name": "Agent Loop API Server"
+    },
+    "llm": {
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "qwen2.5-coder:7b",
+        "api_key": "not-needed",
+        "timeout": 120
+    },
+    "logging": {
+        "level": "DEBUG",
+        "file": "agent_loop_api_server.log"
+    },
+    "database": {
+        "path": "../db/agent_loop_data.db"
+    },
+    "approval": {
+        "timeout_seconds": 300,
+        "auto_reject_on_timeout": true
+    }
+}

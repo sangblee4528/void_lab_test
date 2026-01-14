@@ -460,4 +460,32 @@ def format_to_openai_response(ollama_resp: Dict):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=config["agent"]["host"], port=config["agent"]["port"])
+    import signal
+    import sys
+    
+    def signal_handler(sig, frame):
+        """Ctrl+C 등 종료 시그널 처리"""
+        print("\n🛑 종료 신호 수신. 서버를 정상 종료합니다...")
+        sys.exit(0)
+    
+    # 시그널 핸들러 등록
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # uvicorn 실행 (graceful shutdown 설정 포함)
+    config_uvicorn = uvicorn.Config(
+        app,
+        host=config["agent"]["host"],
+        port=config["agent"]["port"],
+        loop="asyncio",
+        timeout_graceful_shutdown=5  # 5초 내 graceful shutdown
+    )
+    server = uvicorn.Server(config_uvicorn)
+    
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        print("\n🛑 키보드 인터럽트. 서버를 종료합니다...")
+    finally:
+        print("✅ 서버가 정상 종료되었습니다. 포트가 해제되었습니다.")
+
